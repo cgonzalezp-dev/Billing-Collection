@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listado de asistentes barbecue 2 Cristian González, sábado 7 de noviembre</title>
+<style>
+  :root{--bg:#faf7f2;--card:#fff;--ink:#2a2420;--mut:#7a6f66;--line:#e8e0d6;--acc:#c2410c;--ok:#15803d;--okbg:#ecfdf3}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:18px 16px 10px;max-width:900px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px;line-height:1.25}
+  .sub{color:var(--mut);font-size:14px}
+  .bar{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 16px;max-width:900px;margin:0 auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px}
+  .stat b{font-size:16px}
+  input[type=search]{flex:1;min-width:150px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:16px;background:#fff}
+  main{max-width:900px;margin:0 auto;padding:0 16px 40px}
+  table{width:100%;border-collapse:separate;border-spacing:0 6px}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);text-align:left;padding:4px 10px;font-weight:600}
+  td{background:var(--card);padding:8px 10px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  td:first-child{border-left:1px solid var(--line);border-radius:10px 0 0 10px}
+  td:last-child{border-right:1px solid var(--line);border-radius:0 10px 10px 0}
+  tr.in td{background:var(--okbg)}
+  .num{color:var(--mut);font-size:12px;width:26px}
+  .name{font-weight:600}
+  .chk{width:28px;height:28px;accent-color:var(--ok)}
+  select,input[type=text]{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:16px;background:#fff}
+  input.placa{text-transform:uppercase;font-weight:600;letter-spacing:.08em;min-width:90px}
+  input:disabled,select:disabled{background:#f3efe9;color:#b4aa9f}
+  .add{display:flex;gap:8px;margin:16px 0}
+  .add input{flex:1}
+  button{padding:10px 14px;border:0;border-radius:10px;background:var(--acc);color:#fff;font-size:15px;font-weight:600}
+  #status{font-size:12px;color:var(--mut);padding:0 16px;max-width:900px;margin:0 auto}
+  #status.err{color:#b91c1c}
+  @media(max-width:560px){th:nth-child(1),td.num{display:none}td{padding:6px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Listado de asistentes barbecue 2 Cristian González, sábado 7 de noviembre</h1>
+  <div class="sub">Portería: marque a cada persona al llegar e indique cómo llega. Todo se guarda automáticamente.</div>
+</header>
+<div id="status">Conectando…</div>
+<div class="bar">
+  <div class="stat">Llegaron <b id="cIn">0</b> / <b id="cTot">0</b></div>
+  <div class="stat">🚶 <b id="cPie">0</b> · 🏍️ <b id="cMoto">0</b> · 🚗 <b id="cCarro">0</b></div>
+  <input type="search" id="q" placeholder="Buscar nombre…">
+</div>
+<main>
+  <table>
+    <thead><tr><th></th><th>Nombre</th><th>Llegó</th><th>Transporte</th><th>Placa</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="add"><input type="text" id="newName" placeholder="Agregar persona que no está en la lista"><button id="addBtn">Agregar</button></div>
+</main>
+<script>
+const BASE = ["Yeiris Quiroz","Samuel Pimienta","Sara Pimienta","Faber Capera","Erika Caldas","Steven Capera","Catalina Díaz","Doris Pimienta","Arnobis Ortega","Mateo Ortega","Stella Ortega","Carmen Capera","Juan Pablo Rozo","David Rozo","Juan de La Cruz Martínez","Nohora Pimienta","Natalia Garatejo","Cristian González","Julián Sanabria","Elianeth Pimienta","Rudecindo Castro","Mayra Castro","Wesly Castro","Juan Carlos Capera","Thomas Payares"]
+  .map((n,i)=>({id:"p"+String(i+1).padStart(2,"0"),name:n}));
+let state = {};   // id -> {llego, transporte, placa, name?}
+let extras = {};  // id -> name
+let coll = null;
+const SB_URL = "https://jhsysydexkhsmfuvoekm.supabase.co";
+const SB_KEY = "sb_publishable_3mbVY0MF519-hUY2Z6Zo6w_k3wtl3wj";
+const TABLE = "bbq_asistentes";
+const H = {apikey:SB_KEY, Authorization:"Bearer "+SB_KEY, "Content-Type":"application/json"};
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+function setStatus(t, err){ statusEl.textContent = t; statusEl.className = err ? "err" : ""; }
+
+function all(){ return BASE.concat(Object.entries(extras).map(([id,name])=>({id,name}))); }
+function rec(id){ return Object.assign({llego:false,transporte:"",placa:""}, state[id]||{}); }
+
+function render(){
+  const q = $("q").value.trim().toLowerCase();
+  const list = all();
+  const tb = $("rows"); tb.innerHTML = "";
+  let cIn=0,pie=0,moto=0,carro=0;
+  list.forEach((p,i)=>{
+    const r = rec(p.id);
+    if(r.llego) cIn++;
+    if(r.transporte==="pie") pie++; if(r.transporte==="moto") moto++; if(r.transporte==="carro") carro++;
+    if(q && !p.name.toLowerCase().includes(q)) return;
+    const tr = document.createElement("tr"); if(r.llego) tr.className="in";
+    const needsPlate = r.transporte==="moto" || r.transporte==="carro";
+    tr.innerHTML = `<td class="num">${i+1}</td><td class="name"></td>
+      <td><input type="checkbox" class="chk"></td>
+      <td><select><option value="">—</option><option value="pie">🚶 A pie</option><option value="moto">🏍️ Moto</option><option value="carro">🚗 Carro</option></select></td>
+      <td><input type="text" class="placa" maxlength="8" placeholder="Placa" autocapitalize="characters" autocomplete="off"></td>`;
+    tr.querySelector(".name").textContent = p.name;
+    const chk = tr.querySelector(".chk"), sel = tr.querySelector("select"), pl = tr.querySelector(".placa");
+    chk.checked = r.llego; sel.value = r.transporte; pl.value = r.placa; pl.disabled = !needsPlate;
+    chk.onchange = ()=>save(p, {llego:chk.checked});
+    sel.onchange = ()=>{ const t=sel.value; save(p, t==="moto"||t==="carro" ? {transporte:t} : {transporte:t, placa:""}); };
+    pl.onchange = ()=>save(p, {placa:pl.value.toUpperCase().replace(/\s+/g,"")});
+    tb.appendChild(tr);
+  });
+  $("cIn").textContent=cIn; $("cTot").textContent=list.length;
+  $("cPie").textContent=pie; $("cMoto").textContent=moto; $("cCarro").textContent=carro;
+}
+
+async function save(p, patch){
+  const next = Object.assign(rec(p.id), patch);
+  if(extras[p.id]) next.name = extras[p.id];
+  state[p.id] = next;
+  render();
+  try{
+    const body = {id:p.id, llego:next.llego, transporte:next.transporte, placa:next.placa, name:next.name||null, updated_at:new Date().toISOString()};
+    const r = await fetch(SB_URL+"/rest/v1/"+TABLE+"?on_conflict=id", {method:"POST", headers:Object.assign({Prefer:"resolution=merge-duplicates,return=minimal"},H), body:JSON.stringify(body)});
+    if(!r.ok) throw new Error(r.status+" "+(await r.text()));
+    setStatus("Guardado ✓ " + new Date().toLocaleTimeString("es-CO"));
+  }catch(e){ setStatus("No se pudo guardar: " + (e && e.message || e), true); }
+}
+
+async function load(first){
+  try{
+    const r = await fetch(SB_URL+"/rest/v1/"+TABLE+"?select=*", {headers:H});
+    if(!r.ok) throw new Error(r.status);
+    const rows = await r.json();
+    const s = {}, e = {};
+    rows.forEach(d=>{ s[d.id]={llego:d.llego,transporte:d.transporte,placa:d.placa}; if(d.id[0]==="x" && d.name){ e[d.id]=d.name; s[d.id].name=d.name; } });
+    // no pisar el campo que se está editando
+    const a = document.activeElement;
+    if(first || !(a && (a.tagName==="INPUT"||a.tagName==="SELECT") && a.id!=="q")){ state=s; extras=e; render(); }
+    setStatus("Conectado ✓ — los cambios se guardan solos");
+  }catch(err){ setStatus("Sin conexión con la base de datos: " + (err && err.message || err), true); }
+}
+
+$("q").oninput = render;
+$("addBtn").onclick = async ()=>{
+  const n = $("newName").value.trim(); if(!n) return;
+  const id = "x" + Date.now();
+  extras[id] = n; $("newName").value = "";
+  await save({id,name:n}, {name:n});
+};
+render(); load(true); setInterval(()=>load(false), 8000);
+</script>
+</body>
+</html>
